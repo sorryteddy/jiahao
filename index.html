@@ -1,0 +1,2639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>今天也在努力不当嘉豪 - Galgame</title>
+  
+  <!-- 引入谷歌字体，提升排版美感 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==========================================================================
+       1. 核心复位与变量设计 (Theme Variables & Base Reset)
+       ========================================================================== */
+    :root {
+      --primary-neon: #a855f7;      /* 紫色霓虹 */
+      --primary-glow: rgba(168, 85, 247, 0.4);
+      --accent-neon: #ec4899;       /* 粉红霓虹 */
+      --accent-glow: rgba(236, 72, 153, 0.4);
+      
+      --bg-dark: #09090b;           /* 极暗背景 */
+      --text-main: #f4f4f5;         /* 主要文字 */
+      --text-muted: #a1a1aa;        /* 辅助暗字 */
+      
+      --glass-bg: rgba(15, 15, 25, 0.65);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-highlight: rgba(255, 255, 255, 0.15);
+      
+      --font-family: 'Noto Sans SC', 'Outfit', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent; /* 消除移动端点击蓝色阴影 */
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      overflow: hidden;
+      position: relative;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* 旋转屏提示层：仅在移动端竖屏时触发 */
+    #orientation-warning {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg-dark);
+      z-index: 9999;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 20px;
+    }
+    
+    #orientation-warning img {
+      width: 80px;
+      height: 80px;
+      margin-bottom: 20px;
+      filter: invert(1);
+      animation: rotateIcon 2s ease-in-out infinite;
+    }
+
+    @keyframes rotateIcon {
+      0% { transform: rotate(0deg); }
+      50% { transform: rotate(-90deg); }
+      100% { transform: rotate(0deg); }
+    }
+
+    @media screen and (orientation: portrait) and (max-width: 900px) {
+      #orientation-warning {
+        display: flex;
+      }
+    }
+
+    /* ==========================================================================
+       2. 响应式 16:9 Canvas 视口布局 (Viewport Scaler)
+       ========================================================================== */
+    #viewport-container {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #000;
+      position: relative;
+    }
+
+    #game-canvas {
+      position: absolute;
+      width: 1280px;
+      height: 720px;
+      background: #000;
+      overflow: hidden;
+      transform-origin: center center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+    }
+
+    /* ==========================================================================
+       3. 游戏场景图层组件 (Scene Layer Styling)
+       ========================================================================== */
+    
+    /* 背景层：采用双层叠放，实现平滑交叉淡入淡出 */
+    .bg-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      transition: opacity 800ms ease-in-out;
+      pointer-events: none;
+      z-index: 1;
+    }
+    
+    #bg-back {
+      z-index: 1;
+    }
+    
+    #bg-front {
+      z-index: 2;
+      opacity: 0;
+    }
+
+    /* 屏幕暗度暗角滤镜，提升沉浸感 */
+    .vignette-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, transparent 40%, rgba(0, 0, 0, 0.4) 100%);
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .character-layer {
+      position: absolute;
+      bottom: 180px; /* 让立绘底部放置在对话框上方，避免被遮挡 */
+      left: 0;
+      width: 100%;
+      height: calc(100% - 210px); /* 动态调优高度，防止超出画布 */
+      z-index: 4;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+      padding: 0 50px;
+    }
+
+    .char-slot {
+      width: 33%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      position: relative;
+      transition: transform 450ms cubic-bezier(0.25, 0.8, 0.25, 1), opacity 450ms ease, filter 450ms ease;
+      opacity: 0;
+      transform: translateY(40px);
+    }
+
+    .char-slot.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* 非发言人自动暗淡并微缩 */
+    .char-slot.dimmed {
+      filter: brightness(0.45) contrast(0.9);
+      transform: translateY(15px) scale(0.96);
+    }
+
+    .char-slot img {
+      max-width: 90%;
+      max-height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 15px 15px rgba(0,0,0,0.6));
+    }
+
+    /* ==========================================================================
+       4. 对话框与排版 UI (Dialogue Box & Typography)
+       ========================================================================== */
+    .interactive-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 5;
+      pointer-events: auto;
+    }
+
+    .dialogue-panel {
+      position: absolute;
+      bottom: 25px;
+      left: 5%;
+      width: 90%;
+      height: 170px;
+      border-radius: 16px;
+      padding: 24px 35px;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .dialogue-panel:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), inset 0 0 15px rgba(255, 255, 255, 0.03);
+    }
+
+    /* 角色姓名框 */
+    .speaker-tag {
+      position: absolute;
+      top: -24px;
+      left: 30px;
+      padding: 8px 24px;
+      border-radius: 8px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #fff;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.8) 0%, rgba(236, 72, 153, 0.8) 100%);
+      display: none; /* 无姓名时隐藏 */
+    }
+
+    /* 对话内容区 */
+    .dialogue-text {
+      font-size: 22px;
+      line-height: 1.6;
+      letter-spacing: 1px;
+      color: var(--text-main);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      white-space: pre-wrap;
+      overflow-y: auto;
+      max-height: 100%;
+      scrollbar-width: none; /* 隐藏滚动条 */
+    }
+    .dialogue-text::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* 推进点击指示符 */
+    .click-indicator {
+      position: absolute;
+      bottom: 15px;
+      right: 25px;
+      width: 14px;
+      height: 14px;
+      border-bottom: 3px solid var(--primary-neon);
+      border-right: 3px solid var(--primary-neon);
+      transform: rotate(45deg);
+      animation: pulseIndicator 1.2s ease-in-out infinite;
+      display: none;
+    }
+
+    @keyframes pulseIndicator {
+      0% { transform: rotate(45deg) translate(0, 0); opacity: 0.3; }
+      50% { transform: rotate(45deg) translate(5px, 5px); opacity: 1; }
+      100% { transform: rotate(45deg) translate(0, 0); opacity: 0.3; }
+    }
+
+    /* ==========================================================================
+       5. 顶部导航与功能菜单 (Top Navigation Bar)
+       ========================================================================== */
+    .top-menu-bar {
+      position: absolute;
+      top: 20px;
+      right: 35px;
+      height: 44px;
+      border-radius: 22px;
+      display: flex;
+      align-items: center;
+      padding: 0 15px;
+      z-index: 10;
+      gap: 12px;
+    }
+
+    .menu-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-family: var(--font-family);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 6px 14px;
+      border-radius: 14px;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .menu-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .menu-btn.active {
+      color: #fff;
+      background: linear-gradient(135deg, var(--primary-neon), var(--accent-neon));
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    /* ==========================================================================
+       6. 分支选项渲染叠加层 (Choices Overlay Layer)
+       ========================================================================== */
+    .choices-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 8;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(4px);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 22px;
+    }
+
+    .choice-button {
+      width: 75%;
+      min-height: 58px;
+      padding: 14px 28px;
+      border-radius: 14px;
+      font-size: 18px;
+      font-weight: 500;
+      text-align: center;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(20, 20, 32, 0.8);
+      color: var(--text-main);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .choice-button:hover {
+      transform: scale(1.03);
+      border-color: var(--primary-neon);
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.25) 0%, rgba(236, 72, 153, 0.15) 100%);
+      box-shadow: 0 0 25px var(--primary-glow), inset 0 0 10px rgba(255,255,255,0.05);
+    }
+    
+    .choice-button:active {
+      transform: scale(0.98);
+    }
+
+    /* ==========================================================================
+       7. 模态框叠加面板（历史记录、系统设置、存档读取）
+       ========================================================================== */
+    .overlay-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 100;
+      background: rgba(8, 8, 12, 0.85);
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 40px 60px;
+    }
+
+    .panel-header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding-bottom: 15px;
+      margin-bottom: 25px;
+    }
+
+    .panel-title {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      background: linear-gradient(135deg, #fff 30%, var(--text-muted) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .panel-close {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: all 0.2s ease;
+    }
+
+    .panel-close:hover {
+      background: var(--accent-neon);
+      border-color: var(--accent-neon);
+      transform: rotate(90deg);
+    }
+
+    /* 历史对话记录 */
+    .log-list {
+      width: 100%;
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 10px;
+    }
+    .log-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .log-list::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 3px;
+    }
+    .log-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+    .log-list::-webkit-scrollbar-thumb:hover {
+      background: var(--primary-neon);
+    }
+
+    .log-item {
+      margin-bottom: 20px;
+      padding: 15px 20px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    
+    .log-speaker {
+      font-weight: 700;
+      color: var(--primary-neon);
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+
+    .log-speaker.narrator {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .log-dialogue {
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--text-main);
+    }
+
+    /* 存档 & 读档插槽列表 */
+    .save-slot-grid {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 25px;
+      overflow-y: auto;
+      padding: 10px 5px;
+    }
+
+    .save-slot {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 160px;
+      position: relative;
+    }
+
+    .save-slot:hover {
+      border-color: var(--primary-neon);
+      background: rgba(255, 255, 255, 0.04);
+      transform: translateY(-4px);
+      box-shadow: 0 8px 25px rgba(168, 85, 247, 0.15);
+    }
+
+    .slot-meta {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .slot-info {
+      flex: 1;
+      font-size: 17px;
+      line-height: 1.4;
+      color: var(--text-main);
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .slot-empty {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      color: var(--text-muted);
+      font-size: 18px;
+      letter-spacing: 1px;
+    }
+    
+    .slot-date {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 10px;
+      text-align: right;
+    }
+
+    /* 设置面板 */
+    .settings-list {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      max-width: 600px;
+      margin: 40px auto;
+    }
+
+    .setting-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .setting-label {
+      font-size: 20px;
+      font-weight: 500;
+    }
+
+    .setting-control {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      width: 60%;
+    }
+
+    .setting-control input[type="range"] {
+      flex: 1;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      outline: none;
+      -webkit-appearance: none;
+      accent-color: var(--primary-neon);
+    }
+    
+    .setting-control span {
+      width: 45px;
+      text-align: right;
+      font-size: 16px;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    /* ==========================================================================
+       8. 极简唯美游戏标题屏 (Title Screen Layout)
+       ========================================================================== */
+    .title-screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 200;
+      background: radial-gradient(circle at center, #18142c 0%, #050409 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      padding: 100px 50px 80px 50px;
+      transition: opacity 1000ms ease;
+    }
+
+    /* 动态漂浮粒子特效底衬 */
+    .title-particles {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .particle {
+      position: absolute;
+      background: radial-gradient(circle, rgba(168,85,247,0.3) 0%, transparent 70%);
+      border-radius: 50%;
+      animation: floatUp infinite linear;
+    }
+
+    @keyframes floatUp {
+      0% { transform: translateY(720px) scale(0.5); opacity: 0; }
+      10% { opacity: 0.6; }
+      90% { opacity: 0.6; }
+      100% { transform: translateY(-100px) scale(1.5); opacity: 0; }
+    }
+
+    .game-logo {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      z-index: 2;
+    }
+
+    .logo-main {
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: 6px;
+      background: linear-gradient(135deg, #fff 0%, #d8b4fe 50%, var(--primary-neon) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 4px 20px rgba(168, 85, 247, 0.3);
+      margin-bottom: 15px;
+    }
+
+    .logo-sub {
+      font-size: 18px;
+      letter-spacing: 8px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .title-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      width: 280px;
+      z-index: 2;
+    }
+
+    .title-btn {
+      padding: 15px 0;
+      font-size: 18px;
+      font-weight: 500;
+      letter-spacing: 3px;
+      color: #fff;
+      border: 1px solid var(--glass-border);
+      border-radius: 30px;
+      background: var(--glass-bg);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+
+    .title-btn:hover {
+      border-color: var(--primary-neon);
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.4) 0%, rgba(236, 72, 153, 0.2) 100%);
+      box-shadow: 0 0 25px var(--primary-glow);
+      transform: translateY(-2px);
+    }
+    
+    .title-btn:active {
+      transform: translateY(1px);
+    }
+
+    .title-footer {
+      color: rgba(255,255,255,0.2);
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      z-index: 2;
+    }
+
+    /* ==========================================================================
+       9. 提示与无剧本警告层 (Error & Warnings)
+       ========================================================================== */
+    .alert-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #0d0d11;
+      z-index: 99999;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #fff;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .alert-box {
+      max-width: 500px;
+      padding: 35px;
+      border-radius: 20px;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      background: rgba(239, 68, 68, 0.05);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .alert-box h2 {
+      font-size: 26px;
+      color: #ef4444;
+      margin-bottom: 15px;
+    }
+
+    .alert-box p {
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 25px;
+    }
+
+    /* 通用玻璃板面样式类 */
+    .glass-panel {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px) saturate(180%);
+      -webkit-backdrop-filter: blur(12px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 竖屏强制翻转提示 -->
+  <div id="orientation-warning">
+    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'><path d='M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h2c-.4-4.81-3.48-8.92-8-10.48l.03 2zm-8-.04l.03-2c-4.52 1.56-7.6 5.67-8 10.48h2c.36-3.76 2.7-6.93 5.97-8.48zM19 12h-2v5H7v-5H5v5c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2v-5zm-7 1.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/></svg>" alt="Rotate Screen">
+    <h2 style="font-size: 20px; margin-bottom: 10px;">为了获得最佳沉浸体验</h2>
+    <p style="color: var(--text-muted); font-size: 14px;">请将手机横屏放置旋转后再玩</p>
+  </div>
+
+  <!-- 无剧本友好警告层 -->
+  <div id="script-alert-screen" class="alert-screen">
+    <div class="alert-box">
+      <h2>⚠️ 检测到剧本配置缺失</h2>
+      <p>引擎未检测到合法的剧本JSON数据。请根据顶部注释中的“素材替换清单”配置您的游戏剧本 database。</p>
+      <button class="title-btn" style="width: 150px;" onclick="window.location.reload()">重新载入</button>
+    </div>
+  </div>
+
+  <!-- 视口缩放外包装 -->
+  <div id="viewport-container">
+    
+    <!-- 16:9 游戏主画布 -->
+    <div id="game-canvas">
+      
+      <!-- ==========================================
+           A. 唯美游戏标题画面
+           ========================================== -->
+      <div id="title-screen" class="title-screen">
+        <div class="title-particles" id="title-particles-container"></div>
+        
+        <div class="game-logo">
+          <div class="logo-main">今天也在努力不当嘉豪</div>
+          <div class="logo-sub">Galgame Engine v1.0</div>
+        </div>
+
+        <div class="title-buttons">
+          <button class="title-btn" id="btn-start-game">开始新篇</button>
+          <button class="title-btn" id="btn-continue-game">继续游戏</button>
+          <button class="title-btn" id="btn-show-settings">系统设置</button>
+        </div>
+
+        <div class="title-footer">
+          Design by Antigravity Studio &copy; 2026
+        </div>
+      </div>
+
+      <!-- ==========================================
+           B. 游戏背景层 (Dual Layer Cross-fade)
+           ========================================== -->
+      <div id="bg-back" class="bg-layer"></div>
+      <div id="bg-front" class="bg-layer"></div>
+      <div class="vignette-overlay"></div>
+
+      <!-- ==========================================
+           C. 角色立绘层 (Left, Center, Right slots)
+           ========================================== -->
+      <div class="character-layer">
+        <div id="char-left" class="char-slot"></div>
+        <div id="char-center" class="char-slot"></div>
+        <div id="char-right" class="char-slot"></div>
+      </div>
+
+      <!-- ==========================================
+           D. 功能菜单与控制栏 (Top Bar)
+           ========================================== -->
+      <div class="top-menu-bar glass-panel" id="game-top-bar" style="display: none;">
+        <button class="menu-btn" id="btn-auto">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          自动
+        </button>
+        <button class="menu-btn" id="btn-skip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+          跳过
+        </button>
+        <button class="menu-btn" id="btn-show-log">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 3H6c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V9l-7-7zm.5 8h-7v-2h7v2zm0 4h-7v-2h7v2zm-1-7V3.5L18.5 9H12.5z"/></svg>
+          日志
+        </button>
+        <button class="menu-btn" id="btn-save">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+          存盘
+        </button>
+        <button class="menu-btn" id="btn-load">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+          读盘
+        </button>
+        <button class="menu-btn" id="btn-menu">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+          菜单
+        </button>
+      </div>
+
+      <!-- ==========================================
+           E. 核心交互层 (Dialogue Panel)
+           ========================================== -->
+      <div class="interactive-layer" id="game-interactive-layer" style="display: none;">
+        
+        <!-- 底部大对话面板 -->
+        <div id="dialogue-panel" class="dialogue-panel glass-panel">
+          <div id="speaker-tag" class="speaker-tag"></div>
+          <div id="dialogue-text" class="dialogue-text"></div>
+          <div id="click-prompt" class="click-prompt">
+            <span class="click-indicator" id="arrow-indicator"></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ==========================================
+           F. 分支剧情选项渲染面板
+           ========================================== -->
+      <div id="choices-overlay" class="choices-overlay">
+        <!-- JS 动态灌入按钮 -->
+      </div>
+
+      <!-- ==========================================
+           G. 回滚日志覆盖面板 (Log Screen)
+           ========================================== -->
+      <div id="log-overlay" class="overlay-panel">
+        <div class="panel-header">
+          <div class="panel-title">往期对话日志</div>
+          <button class="panel-close" id="btn-close-log">&times;</button>
+        </div>
+        <div class="log-list" id="log-container">
+          <!-- JS 动态灌入日志条目 -->
+        </div>
+      </div>
+
+      <!-- ==========================================
+           H. 存档与读档管理器面板 (Save/Load Slots)
+           ========================================== -->
+      <div id="save-load-overlay" class="overlay-panel">
+        <div class="panel-header">
+          <div class="panel-title" id="save-load-title">保存/加载游戏</div>
+          <button class="panel-close" id="btn-close-save-load">&times;</button>
+        </div>
+        <div class="save-slot-grid" id="slots-container">
+          <!-- 动态灌入 4 个存档插槽 -->
+        </div>
+      </div>
+
+      <!-- ==========================================
+           I. 设置选项面板 (Volume Settings)
+           ========================================== -->
+      <div id="settings-overlay" class="overlay-panel">
+        <div class="panel-header">
+          <div class="panel-title">系统音量设置</div>
+          <button class="panel-close" id="btn-close-settings">&times;</button>
+        </div>
+        
+        <div class="settings-list">
+          <div class="setting-item">
+            <div class="setting-label">背景音乐 (BGM)</div>
+            <div class="setting-control">
+              <input type="range" id="slider-bgm" min="0" max="1" step="0.05" value="0.5">
+              <span id="label-bgm">50%</span>
+            </div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">系统音效 (SE)</div>
+            <div class="setting-control">
+              <input type="range" id="slider-se" min="0" max="1" step="0.05" value="0.7">
+              <span id="label-se">70%</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: auto; width: 100%; display: flex; justify-content: center;">
+          <button class="title-btn" style="width: 200px;" id="btn-save-settings">保存设置</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- HTML5 Audio 原生音频引擎 -->
+  <audio id="audio-bgm" loop></audio>
+  <audio id="audio-se"></audio>
+
+  <!-- ==========================================================================
+       10. 引擎核心 JavaScript 逻辑
+       ========================================================================== */
+  -->
+  <script>
+    // ==========================================
+    // 0. 素材替换清单 (Asset Replacement Manifest)
+    // ==========================================
+    /*
+     * 1. 目录结构指南：
+     *    请将本地的背景、立绘、音频整理到以下对应子目录下。
+     *    前缀映射可以通过配置 ASSET_PATH_PREFIX 进行快速切换。
+     *
+     *    · 背景路径映射: bg/bg0.jpg -> 本地 bg/bg0.jpg
+     *    · 立绘路径映射: jpg/jpg0.jpg -> 本地 jpg/jpg0.jpg
+     *    · 音乐路径映射: bgm/bgm0.mp3 -> 本地 bgm/bgm0.mp3
+     * 
+     * 2. 剧本数据库扩展配置：
+     *    您可以直接在下面的 `gameScript` 对象中增加或替换 scenes 对象，
+     *    每个节点格式必须包含:
+     *    - id: 节点唯一ID
+     *    - bg: 背景图文件名（支持 "#000000" 代表纯黑屏过渡）
+     *    - bgm: 背景音乐文件名
+     *    - speaker_name: 发言人姓名（为空时代表旁白）
+     *    - dialogue: 对话文字内容
+     *    - left_character: 左立绘文件名
+     *    - right_character: 右立绘文件名
+     *    - center_character: 中间立绘文件名（可选）
+     *    - left_character_active / right_character_active: 立绘高亮布尔值（可选，为空时系统根据发言者自动映射高亮）
+     *    - choices: 数组选项（condition代表触发判定脚本，set_flags代表触发事件旗帜，next为跳转终点ID）
+     *    - next: 下一个顺序节点ID
+     *    - next_if: 条件分流路由数组（支持复杂状态自动跳转）
+     *    - is_ending: 是否属于结束幕节点
+     */
+
+    // 路径前缀映射配置（适应本地或打包部署的素材位置）
+    const ASSET_PATH_PREFIX = {
+      bg: './bg/',        // 背景图片目录前缀
+      char: './jpg/',     // 立绘图片目录前缀
+      bgm: './bgm/',      // 音频音乐目录前缀
+      se: './se/'         // 短效声效目录前缀
+    };
+
+    // ==========================================
+    // 1. 剧本配置声明 (Game Narrative Database)
+    // ==========================================
+    const gameScript = {
+      "scenes": [
+        // --- 场景一：教室 · 早八 ---
+        {
+          "id": "s1_init",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "【画面亮起】教室。晨光斜照，前排趴倒一片。讲台上老师激情板书。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s1_teacher_ask"
+        },
+        {
+          "id": "s1_teacher_ask",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "老师",
+          "dialogue": "（头也不回）这道题，谁来回答一下？",
+          "left_character": "",
+          "right_character": "",
+          "next": "s1_classroom_silence"
+        },
+        {
+          "id": "s1_classroom_silence",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "教室里死寂。只有粉笔敲击声。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s1_choices"
+        },
+        {
+          "id": "s1_choices",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "看着黑板上的题目，我该如何应对？",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "choices": [
+            {
+              "text": "虚空打碟，拉风发言（中二病线）",
+              "next": "s1_dj_path",
+              "set_flags": { "flag_dj": true }
+            },
+            {
+              "text": "低头摸鱼，避开目光（老实人线）",
+              "next": "s1_normal_path",
+              "set_flags": { "flag_dj": false }
+            }
+          ]
+        },
+        // --- 支线：中二打碟 ---
+        {
+          "id": "s1_dj_path",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "同桌",
+          "dialogue": "（倒吸一口气）“卧槽……嘉豪。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_dj_speak"
+        },
+        {
+          "id": "s1_dj_speak",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "我虚空打了个碟，手在空中划出优美弧线：“老师，这道题的答案，不在黑板上，在……代码里。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_dj_teacher_reply"
+        },
+        {
+          "id": "s1_dj_teacher_reply",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "老师",
+          "dialogue": "老师粉笔停住，沉默三秒：“你给我坐下。答案是3。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_seat_down"
+        },
+        // --- 支线：老实摸鱼 ---
+        {
+          "id": "s1_normal_path",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "我缓缓拉上黑色卫衣帽子，戴上3D口罩，死死盯着书桌，企图物理隐身……",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_normal_spot"
+        },
+        {
+          "id": "s1_normal_spot",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "老师",
+          "dialogue": "“大家都不说话，那就……那个戴帽子口罩、低头装死的那位，‘嘉豪’，你站起来说一下。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_normal_fail"
+        },
+        {
+          "id": "s1_normal_fail",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "“额……老师，我，我不会。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_normal_teacher_angry"
+        },
+        {
+          "id": "s1_normal_teacher_angry",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "老师",
+          "dialogue": "“不会就认真听课，别往桌底下钻。坐下吧。答案是3。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_seat_down"
+        },
+        // --- 合流：坐下叹气 ---
+        {
+          "id": "s1_seat_down",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "全班憋笑。我缓缓坐下，摘下口罩，低声自语。",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_complain"
+        },
+        {
+          "id": "s1_complain",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "“……我早麻痹了。我的区块链和基金怎么又跌了！”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s1_end_bell"
+        },
+        {
+          "id": "s1_end_bell",
+          "bg": "bg0.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "下课铃响。我猫着腰从后门溜出，直奔正门。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s2_init"
+        },
+
+        // --- 场景二：正门 · 上午 ---
+        {
+          "id": "s2_init",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "",
+          "dialogue": "正门梧桐树下，烤炉热气腾腾。“鹅腿阿姨”招牌醒目。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s2_buy_leg"
+        },
+        {
+          "id": "s2_buy_leg",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "",
+          "dialogue": "我扫码付了16元，阿姨递来一只金黄烤腿。咬一口，嚼了嚼，我愣住了……",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg1.jpg",
+          "next": "s2_choices"
+        },
+        {
+          "id": "s2_choices",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "",
+          "dialogue": "这只“鹅腿”的味道，口感似乎大有玄机。",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg1.jpg",
+          "choices": [
+            {
+              "text": "“阿姨，这味道……怎么有点像鸭？”",
+              "next": "s2_ask_duck"
+            },
+            {
+              "text": "“阿姨，这鹅腿……口感十分新奇啊。”",
+              "next": "s2_ask_polite",
+              "set_flags": { "flag_polite": true }
+            }
+          ]
+        },
+        {
+          "id": "s2_ask_duck",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "我",
+          "dialogue": "“阿姨，这味道……怎么有点像鸭？”",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg1.jpg",
+          "next": "s2_aunty_confess"
+        },
+        {
+          "id": "s2_ask_polite",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "我",
+          "dialogue": "“阿姨，这鹅腿口感独特，咬起来扎实多汁，但怎么莫名有点鸭香味？”",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg1.jpg",
+          "next": "s2_aunty_confess"
+        },
+        {
+          "id": "s2_aunty_confess",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "阿姨",
+          "dialogue": "阿姨手上动作一顿，叹了口气：“孩子，进不到鹅腿了，这是鸭腿。真用鹅腿，一只三十多，你买吗？”",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg1.jpg",
+          "next": "s2_joke"
+        },
+        {
+          "id": "s2_joke",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "我",
+          "dialogue": "我看着手里的鸭腿，又看看招牌：“老婆饼里没老婆是开玩笑，您这鹅腿里没鹅……是玩真的啊。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg1.jpg",
+          "next": "s2_aunty_sigh"
+        },
+        {
+          "id": "s2_aunty_sigh",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "阿姨",
+          "dialogue": "阿姨叹气：“受着呗。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg1.jpg",
+          "next": "s2_eat_leg"
+        },
+        {
+          "id": "s2_eat_leg",
+          "bg": "bg1.jpg",
+          "bgm": "bgm1.mp3",
+          "speaker_name": "我",
+          "dialogue": "我又咬了一口：“……别说，还挺香。”叼着鸭腿，转身走向操场。",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s3_init"
+        },
+
+        // --- 场景三：操场 · 中午 ---
+        {
+          "id": "s3_init",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "",
+          "dialogue": "烈日当空。跑道上有零星跑步的人。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s3_my_run"
+        },
+        {
+          "id": "s3_my_run",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "我",
+          "dialogue": "我叼着鸭腿踏上跑道：“跑个十公里消化一下。”一圈，两圈，三圈……第五圈，脚步发软。",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s3_qh_chase"
+        },
+        {
+          "id": "s3_qh_chase",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "清欢",
+          "dialogue": "清欢从后面追上来，手里举着一根巧乐兹雪糕，三口吃完，又掏出一瓶雪碧吨吨灌下：“你跑不过我你信吗？”",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg2.jpg",
+          "next": "s3_run_choices"
+        },
+        {
+          "id": "s3_run_choices",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "",
+          "dialogue": "清欢挑衅的目光袭来，我该怎么回应？",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg2.jpg",
+          "choices": [
+            {
+              "text": "燃起来！全力冲刺追上去！",
+              "next": "s3_run_sprint",
+              "set_flags": { "flag_exhausted": true }
+            },
+            {
+              "text": "算了吧，当场咸鱼躺平...",
+              "next": "s3_run_laydown",
+              "set_flags": { "flag_exhausted": false }
+            }
+          ]
+        },
+        {
+          "id": "s3_run_sprint",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "我",
+          "dialogue": "“我堂堂嘉豪，岂能向雪糕恶势力低头！啊啊冲啊！”我死命拔腿，然而没跑完半圈，只觉喉咙发甜……",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg2.jpg",
+          "next": "s3_fall"
+        },
+        {
+          "id": "s3_run_laydown",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "我",
+          "dialogue": "“你吨吨喝雪碧，我还在啃假鹅腿，这怎么比。行，你牛，你先飞……”我脚步渐停，慢悠悠在操场边缘蹭地走。",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg2.jpg",
+          "next": "s3_fall"
+        },
+        {
+          "id": "s3_fall",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "",
+          "dialogue": "我眼冒金星，瘫倒在跑道边，仰面望着天空，鸭腿还攥在手里。喃喃自语。",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s3_xuefeng"
+        },
+        {
+          "id": "s3_xuefeng",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "我",
+          "dialogue": "“张雪峰老师……你当年也是这么跑的吗……”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s3_to_lib"
+        },
+        {
+          "id": "s3_to_lib",
+          "bg": "bg2.jpg",
+          "bgm": "bgm2.mp3",
+          "speaker_name": "",
+          "dialogue": "躺了一会儿，我爬起来，拍拍土，走向图书馆。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s4_init"
+        },
+
+        // --- 场景四：图书馆 · 下午 ---
+        {
+          "id": "s4_init",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "",
+          "dialogue": "图书馆落地窗，阳光洒满书架。一片死寂。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s4_enter"
+        },
+        {
+          "id": "s4_enter",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "我",
+          "dialogue": "我轻手轻脚推门进入，找个位置坐下。掏出手机，屏幕上弹出：“您的账号已断开连接。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s4_write_phone"
+        },
+        {
+          "id": "s4_write_phone",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "",
+          "dialogue": "我咬紧牙关，在备忘录上打字，举给对面的同学看：「这破校园网又炸了。」",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s4_classmate_reply"
+        },
+        {
+          "id": "s4_classmate_reply",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "对面同学",
+          "dialogue": "对面同学面无表情，举起手机回举：「受着呗。」",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s4_notice_dj"
+        },
+        {
+          "id": "s4_notice_dj",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "",
+          "dialogue": "我憋到内伤，忽然瞥见旁边座位上，一个穿黑色卫衣的哥们正戴着3D口罩，对着笔记本电脑屏幕无声地、虔诚地虚空打碟。",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s4_write_dj"
+        },
+        {
+          "id": "s4_write_dj",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "",
+          "dialogue": "我忍着酸涩，轻轻在手机备忘录上打了一个词，战战兢兢地递了过去。",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s4_ask_jiahao"
+        },
+        {
+          "id": "s4_ask_jiahao",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "我",
+          "dialogue": "我把手机递过去：「嘉豪？」",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s4_dj_confirm"
+        },
+        {
+          "id": "s4_dj_confirm",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "黑色卫衣哥们",
+          "dialogue": "他看到后缓缓点头，把笔记本屏幕转过来——上面是一行代码，运行结果弹出窗口：「YOU ARE NOT ALONE.」",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg0.jpg", // 同用卫衣哥立绘
+          "next": "s4_check_branch"
+        },
+        // 核心跳转判断：依据早八选择的 flag_dj 状态进行对话分流
+        {
+          "id": "s4_check_branch",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "",
+          "dialogue": "",
+          "next_if": [
+            { "condition": "flags.flag_dj === true", "next": "s4_route_dj_active" },
+            { "condition": "true", "next": "s4_route_dj_normal" }
+          ]
+        },
+        {
+          "id": "s4_route_dj_active",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "黑色卫衣哥们",
+          "dialogue": "他在记事本打字：「早八在教室戴口罩打碟的就是你吧？失敬，原来你也是代码界著名DJ！」",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg0.jpg",
+          "next": "s4_cry"
+        },
+        {
+          "id": "s4_route_dj_normal",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "黑色卫衣哥们",
+          "dialogue": "他在记事本默默回写：「受着呗，嘉豪。我们都在同一张薛定谔的网里打摆子。」",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg0.jpg",
+          "next": "s4_cry"
+        },
+        {
+          "id": "s4_cry",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "",
+          "dialogue": "我鼻子一酸，打过去：「谢谢兄弟。」他关掉代码，继续无声打碟。",
+          "left_character": "jpg0.jpg",
+          "right_character": "jpg0.jpg",
+          "next": "s4_leave"
+        },
+        {
+          "id": "s4_leave",
+          "bg": "bg3.jpg",
+          "bgm": "bgm3.mp3",
+          "speaker_name": "",
+          "dialogue": "我收起手机，轻轻起身，离开图书馆，走回寝室。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s5_init"
+        },
+
+        // --- 场景五：寝室 · 深夜 ---
+        {
+          "id": "s5_init",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "寝室里四台电竞屏同时亮着，RGB灯带闪烁如霓虹。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s5_room_shout"
+        },
+        {
+          "id": "s5_room_shout",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "李哥",
+          "dialogue": "“中路中路！”",
+          "left_character": "jpg3.jpg",
+          "right_character": "",
+          "next": "s5_room_shout_zhang"
+        },
+        {
+          "id": "s5_room_shout_zhang",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "张哥",
+          "dialogue": "“别别别——我卡了！这破网！”",
+          "left_character": "",
+          "right_character": "jpg4.jpg",
+          "next": "s5_room_shout_xianyu"
+        },
+        {
+          "id": "s5_room_shout_xianyu",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "咸鱼",
+          "dialogue": "（头也不回）“快来！五缺一！”",
+          "left_character": "",
+          "right_character": "jpg5.jpg",
+          "next": "s5_me_open"
+        },
+        {
+          "id": "s5_me_open",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "我坐到自己的电竞椅上，开机——屏幕弹出：“正在连接……超时……重试中……”我盯着屏幕：“……又来了。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s5_li_comment"
+        },
+        {
+          "id": "s5_li_comment",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "李哥",
+          "dialogue": "李哥瘫在椅子上：“你知道咱们校园网叫什么吗？薛定谔的网——你永远不知道下一秒它通不通。”",
+          "left_character": "jpg3.jpg",
+          "right_character": "",
+          "next": "s5_xianyu_comment"
+        },
+        {
+          "id": "s5_xianyu_comment",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "咸鱼",
+          "dialogue": "咸鱼幽幽补刀：“而且在你最需要它的时候，它一定不通。”",
+          "left_character": "",
+          "right_character": "jpg5.jpg",
+          "next": "s5_mention_duck"
+        },
+        {
+          "id": "s5_mention_duck",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "我看着手里吃剩的半只鸭腿，笑了：“兄弟们，我今天在正门买了个‘鹅腿’——是鸭腿。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s5_zhang_question"
+        },
+        {
+          "id": "s5_zhang_question",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "张哥",
+          "dialogue": "沉默三秒，张哥：“……那你还吃？”",
+          "left_character": "",
+          "right_character": "jpg4.jpg",
+          "next": "s5_my_sigh"
+        },
+        {
+          "id": "s5_my_sigh",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "我咬了一口：“吃都吃了。人生嘛——你以为的鹅腿，其实是鸭腿；你以为的网会通，其实它永远不会通。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s5_toast_choices"
+        },
+        {
+          "id": "s5_toast_choices",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "面对大家的叹息，我举起手中的物件提议敬一杯：",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "choices": [
+            {
+              "text": "举起吃剩的半只鸭腿！",
+              "next": "s5_toast_duck"
+            },
+            {
+              "text": "举起喝了一半的雪碧！",
+              "next": "s5_toast_sprite"
+            }
+          ]
+        },
+        {
+          "id": "s5_toast_duck",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "我笑着举起鸭腿：“敬我们——一群在垃圾校园网里打电竞、吃鸭腿骗自己是鹅腿、在图书馆无声虚空打碟的……。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s5_others_toast"
+        },
+        {
+          "id": "s5_toast_sprite",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "我",
+          "dialogue": "我笑着举起雪碧：“敬我们——一群在垃圾校园网里打电竞、吃鸭腿骗自己是鹅腿、在图书馆无声虚空打碟的……。”",
+          "left_character": "jpg0.jpg",
+          "right_character": "",
+          "next": "s5_others_toast"
+        },
+        {
+          "id": "s5_others_toast",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "咸鱼举起雪碧：“敬鸭腿。”李哥举起巧乐兹：“敬校园网。”张哥举起电竞鼠标：“敬……嘉豪们。”",
+          "left_character": "jpg3.jpg",
+          "right_character": "jpg5.jpg",
+          "next": "s5_smile_group"
+        },
+        {
+          "id": "s5_smile_group",
+          "bg": "bg4.jpg",
+          "bgm": "bgm0.mp3",
+          "speaker_name": "",
+          "dialogue": "四人相视而笑。RGB灯光闪烁，窗外月光洒进来。",
+          "left_character": "jpg3.jpg",
+          "right_character": "jpg5.jpg",
+          "next": "s5_black_transition"
+        },
+        
+        // --- 幕后结算黑屏字幕 ---
+        {
+          "id": "s5_black_transition",
+          "bg": "#000000",
+          "bgm": "",
+          "speaker_name": "",
+          "dialogue": "【黑屏。字幕缓缓浮现——】",
+          "left_character": "",
+          "right_character": "",
+          "next": "s5_sub1"
+        },
+        {
+          "id": "s5_sub1",
+          "bg": "#000000",
+          "bgm": "",
+          "speaker_name": "",
+          "dialogue": "“这个世界有很多标签。鹅腿、嘉豪、图书馆、巧乐兹……",
+          "left_character": "",
+          "right_character": "",
+          "next": "s5_sub2"
+        },
+        {
+          "id": "s5_sub2",
+          "bg": "#000000",
+          "bgm": "",
+          "speaker_name": "",
+          "dialogue": "但标签下面，不过是一群努力活着的人。",
+          "left_character": "",
+          "right_character": "",
+          "next": "s5_sub3"
+        },
+        {
+          "id": "s5_sub3",
+          "bg": "#000000",
+          "bgm": "",
+          "speaker_name": "",
+          "dialogue": "网可以卡，腿可以是鸭，",
+          "left_character": "",
+          "right_character": "",
+          "next": "s5_sub4"
+        },
+        {
+          "id": "s5_sub4",
+          "bg": "#000000",
+          "bgm": "",
+          "speaker_name": "",
+          "dialogue": "但今晚这局——必须赢。”",
+          "left_character": "",
+          "right_character": "",
+          "next": "s5_final_end"
+        },
+        {
+          "id": "s5_final_end",
+          "bg": "#000000",
+          "bgm": "",
+          "speaker_name": "",
+          "dialogue": "【全剧终】",
+          "left_character": "",
+          "right_character": "",
+          "is_ending": true
+        }
+      ]
+    };
+
+    // ==========================================
+    // 2. 状态管理器 (Game States Management)
+    // ==========================================
+    const state = {
+      currentSceneId: 's1_init',
+      flags: {
+        flag_dj: false,
+        flag_polite: false,
+        flag_exhausted: false
+      },
+      logHistory: [],     // 用于存对话历史 [{speaker, text}]
+      autoMode: false,
+      skipMode: false,
+      isTyping: false
+    };
+
+    // 音量配置，保存在localStorage中
+    const settings = {
+      bgmVolume: 0.5,
+      seVolume: 0.7
+    };
+
+    let typingTimer = null;
+    let fullDialogueText = "";
+    let visibleTextLength = 0;
+    let autoTimer = null;
+
+    // 获取DOM节点引用
+    const dom = {
+      viewport: document.getElementById('viewport-container'),
+      canvas: document.getElementById('game-canvas'),
+      
+      titleScreen: document.getElementById('title-screen'),
+      btnStartGame: document.getElementById('btn-start-game'),
+      btnContinueGame: document.getElementById('btn-continue-game'),
+      btnShowSettings: document.getElementById('btn-show-settings'),
+      titleParticles: document.getElementById('title-particles-container'),
+
+      bgBack: document.getElementById('bg-back'),
+      bgFront: document.getElementById('bg-front'),
+      
+      charLeft: document.getElementById('char-left'),
+      charCenter: document.getElementById('char-center'),
+      charRight: document.getElementById('char-right'),
+      
+      dialoguePanel: document.getElementById('dialogue-panel'),
+      speakerTag: document.getElementById('speaker-tag'),
+      dialogueText: document.getElementById('dialogue-text'),
+      arrowIndicator: document.getElementById('arrow-indicator'),
+      gameTopBar: document.getElementById('game-top-bar'),
+      
+      choicesOverlay: document.getElementById('choices-overlay'),
+      
+      // 遮罩组件
+      logOverlay: document.getElementById('log-overlay'),
+      logContainer: document.getElementById('log-container'),
+      btnCloseLog: document.getElementById('btn-close-log'),
+      
+      saveLoadOverlay: document.getElementById('save-load-overlay'),
+      saveLoadTitle: document.getElementById('save-load-title'),
+      slotsContainer: document.getElementById('slots-container'),
+      btnCloseSaveLoad: document.getElementById('btn-close-save-load'),
+      
+      settingsOverlay: document.getElementById('settings-overlay'),
+      sliderBgm: document.getElementById('slider-bgm'),
+      sliderSe: document.getElementById('slider-se'),
+      labelBgm: document.getElementById('label-bgm'),
+      labelSe: document.getElementById('label-se'),
+      btnSaveSettings: document.getElementById('btn-save-settings'),
+      btnCloseSettings: document.getElementById('btn-close-settings'),
+      
+      btnAuto: document.getElementById('btn-auto'),
+      btnSkip: document.getElementById('btn-skip'),
+      btnShowLog: document.getElementById('btn-show-log'),
+      btnSave: document.getElementById('btn-save'),
+      btnLoad: document.getElementById('btn-load'),
+      btnMenu: document.getElementById('btn-menu'),
+      
+      audioBgm: document.getElementById('audio-bgm'),
+      audioSe: document.getElementById('audio-se'),
+      scriptAlert: document.getElementById('script-alert-screen')
+    };
+
+    // ==========================================
+    // 3. 自适应画布缩放核心逻辑 (Canvas Scaling)
+    // ==========================================
+    function resizeGameCanvas() {
+      const baseWidth = 1280;
+      const baseHeight = 720;
+      const windowWidth = window.innerWidth;
+      const windowHeight = window.innerHeight;
+      
+      // 计算长宽最佳比率
+      const scale = Math.min(windowWidth / baseWidth, windowHeight / baseHeight);
+      
+      // 依靠 CSS Transform matrix 矩阵缩放并居中
+      dom.canvas.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      dom.canvas.style.left = '50%';
+      dom.canvas.style.top = '50%';
+    }
+
+    window.addEventListener('resize', resizeGameCanvas);
+    window.addEventListener('load', resizeGameCanvas);
+
+    // ==========================================
+    // 4. 工具模块 (Helper Utilities)
+    // ==========================================
+    
+    // 素材智能路径解析（适应不同的开发部署路径）
+    function getMappedAssetPath(type, rawPath) {
+      if (!rawPath) return '';
+      // 如果本来就是 Hex 颜色字符，不进行转换
+      if (rawPath.startsWith('#')) return rawPath;
+      if (rawPath.startsWith('data:') || rawPath.startsWith('http')) return rawPath;
+      
+      // 提取文件名
+      const parts = rawPath.split('/');
+      const filename = parts[parts.length - 1];
+      
+      // 拼接当前环境设定的目录路径
+      return (ASSET_PATH_PREFIX[type] || './') + filename;
+    }
+
+    // 智能提取立绘关联姓名
+    function getCharacterNameByFilename(path) {
+      if (!path) return '';
+      const filename = path.split('/').pop().split('.')[0];
+      const nameMap = {
+        'jpg0': '我',
+        'jpg1': '阿姨',
+        'jpg2': '清欢',
+        'jpg3': '李哥',
+        'jpg4': '张哥',
+        'jpg5': '咸鱼'
+      };
+      return nameMap[filename] || '';
+    }
+
+    // 执行安全表达式判定 (安全求值旗帜条件)
+    function evalCondition(condStr) {
+      if (!condStr) return true;
+      try {
+        // 构建独立沙箱求值
+        const evalFunc = new Function('flags', `with(flags) { return (${condStr}); }`);
+        return evalFunc(state.flags);
+      } catch (e) {
+        console.error("Condition eval failed:", condStr, e);
+        return false;
+      }
+    }
+
+    // 短音效播放
+    function playSE(src) {
+      if (!src) return;
+      const mapped = getMappedAssetPath('se', src);
+      dom.audioSe.src = mapped;
+      dom.audioSe.volume = settings.seVolume;
+      dom.audioSe.play().catch(e => console.log("SE blocked:", e));
+    }
+
+    // ==========================================
+    // 5. 音频淡入淡出组件 (Audio Fading Engine)
+    // ==========================================
+    let currentBgmFile = "";
+
+    function playBGM(src) {
+      if (!src) {
+        fadeBgmOut();
+        currentBgmFile = "";
+        return;
+      }
+      
+      const mapped = getMappedAssetPath('bgm', src);
+      if (currentBgmFile === mapped) return; // 相同背景音乐不打断
+      currentBgmFile = mapped;
+
+      fadeBgmOut(() => {
+        dom.audioBgm.src = mapped;
+        dom.audioBgm.volume = 0;
+        dom.audioBgm.play().then(() => {
+          fadeBgmIn();
+        }).catch(e => {
+          console.log("BGM autoplay blocked. Waiting for click.");
+        });
+      });
+    }
+
+    function fadeBgmOut(callback) {
+      const step = 0.05;
+      const interval = 30;
+      const fadeOutTimer = setInterval(() => {
+        if (dom.audioBgm.volume > step) {
+          dom.audioBgm.volume = Math.max(0, dom.audioBgm.volume - step);
+        } else {
+          dom.audioBgm.volume = 0;
+          dom.audioBgm.pause();
+          clearInterval(fadeOutTimer);
+          if (callback) callback();
+        }
+      }, interval);
+    }
+
+    function fadeBgmIn() {
+      const step = 0.05;
+      const interval = 30;
+      dom.audioBgm.play().catch(()=>{});
+      const fadeInTimer = setInterval(() => {
+        if (dom.audioBgm.volume < settings.bgmVolume - step) {
+          dom.audioBgm.volume = Math.min(settings.bgmVolume, dom.audioBgm.volume + step);
+        } else {
+          dom.audioBgm.volume = settings.bgmVolume;
+          clearInterval(fadeInTimer);
+        }
+      }, interval);
+    }
+
+    // ==========================================
+    // 6. 核心游戏循环与渲染引擎 (Game Loop & Renderer)
+    // ==========================================
+    
+    // 初始化检查剧本
+    function checkScriptIntegrity() {
+      if (!gameScript || !gameScript.scenes || gameScript.scenes.length === 0) {
+        dom.scriptAlert.style.display = 'flex';
+        return false;
+      }
+      return true;
+    }
+
+    // 根据 ID 获取剧本场景节点
+    function getSceneNode(id) {
+      return gameScript.scenes.find(s => s.id === id);
+    }
+
+    // 核心渲染函数：更新整个游戏视图
+    function renderScene(sceneId) {
+      // 重置定时器与清空
+      clearTimeout(autoTimer);
+      state.currentSceneId = sceneId;
+      
+      const scene = getSceneNode(sceneId);
+      if (!scene) {
+        console.error("Scene node not found:", sceneId);
+        return;
+      }
+
+      // 1. 背景切换控制（双通道平滑淡入淡出）
+      updateBackground(scene.bg);
+
+      // 2. 背景音乐切换
+      if (scene.bgm !== undefined) {
+        playBGM(scene.bgm);
+      }
+
+      // 3. 播放关联音效
+      if (scene.se) {
+        playSE(scene.se);
+      }
+
+      // 4. 立绘高亮与切换渲染
+      updateCharacters(scene);
+
+      // 5. 对话名字判定与显示
+      if (scene.speaker_name) {
+        dom.speakerTag.textContent = scene.speaker_name;
+        dom.speakerTag.style.display = 'block';
+      } else {
+        dom.speakerTag.style.display = 'none';
+      }
+
+      // 6. 打字机对话文字载入
+      fullDialogueText = scene.dialogue || "";
+      visibleTextLength = 0;
+      dom.arrowIndicator.style.display = 'none';
+
+      // 存入往期日志
+      if (fullDialogueText) {
+        // 避开空节点
+        addHistoryLog(scene.speaker_name, fullDialogueText);
+      }
+
+      // 显示对话框
+      dom.dialoguePanel.style.display = (fullDialogueText === "" && !scene.choices) ? 'none' : 'flex';
+
+      startTypewriter(scene);
+    }
+
+    // 双层背景淡入淡出算法
+    let currentBgSrc = "";
+    function updateBackground(bgValue) {
+      if (!bgValue) return;
+
+      // 判断是纯色还是图片路径
+      const isColor = bgValue.startsWith('#');
+      const targetStyle = isColor ? bgValue : `url('${getMappedAssetPath('bg', bgValue)}')`;
+      
+      if (currentBgSrc === targetStyle) return;
+      currentBgSrc = targetStyle;
+
+      // 载入新图在顶层，执行渐显
+      if (isColor) {
+        dom.bgFront.style.backgroundImage = 'none';
+        dom.bgFront.style.backgroundColor = bgValue;
+      } else {
+        dom.bgFront.style.backgroundColor = 'transparent';
+        dom.bgFront.style.backgroundImage = targetStyle;
+      }
+      
+      dom.bgFront.style.opacity = 0;
+      
+      // 强制触发重绘
+      dom.bgFront.offsetWidth;
+
+      // 前景层透明度变为 1
+      dom.bgFront.style.opacity = 1;
+
+      // 渐变过渡结束，将内容同步给背景层，复原前景
+      setTimeout(() => {
+        if (isColor) {
+          dom.bgBack.style.backgroundImage = 'none';
+          dom.bgBack.style.backgroundColor = bgValue;
+        } else {
+          dom.bgBack.style.backgroundColor = 'transparent';
+          dom.bgBack.style.backgroundImage = targetStyle;
+        }
+        dom.bgFront.style.opacity = 0;
+      }, 850);
+    }
+
+    // 立绘三方位智能渲染与发言人自动对比灰度高亮
+    function updateCharacters(scene) {
+      renderSingleSlot(dom.charLeft, scene.left_character, scene.left_character_active, scene.speaker_name);
+      // 支持 center_character 扩展槽
+      renderSingleSlot(dom.charCenter, scene.center_character, scene.center_character_active, scene.speaker_name);
+      renderSingleSlot(dom.charRight, scene.right_character, scene.right_character_active, scene.speaker_name);
+    }
+
+    function renderSingleSlot(slotElement, imgName, explicitActive, speakerName) {
+      if (!imgName) {
+        // 淡出并清除
+        slotElement.classList.remove('visible');
+        return;
+      }
+
+      const mappedUrl = getMappedAssetPath('char', imgName);
+      
+      // 更新图片
+      let img = slotElement.querySelector('img');
+      if (!img) {
+        img = document.createElement('img');
+        slotElement.appendChild(img);
+      }
+      
+      if (img.getAttribute('src') !== mappedUrl) {
+        img.src = mappedUrl;
+      }
+
+      slotElement.classList.add('visible');
+
+      // 判定高亮亮暗:
+      // 如果脚本显示配置了立绘激活状态，优先听从脚本。
+      // 否则判定该立绘映射的姓名是否等于当前发言人。
+      let isActive = false;
+      if (explicitActive !== undefined) {
+        isActive = explicitActive;
+      } else if (speakerName) {
+        const spriteName = getCharacterNameByFilename(imgName);
+        isActive = (spriteName === speakerName);
+      } else {
+        // 如果是旁白，所有角色暗淡
+        isActive = false;
+      }
+
+      if (isActive) {
+        slotElement.classList.remove('dimmed');
+        slotElement.style.zIndex = 5; // 浮于顶端层
+      } else {
+        slotElement.classList.add('dimmed');
+        slotElement.style.zIndex = 4;
+      }
+    }
+
+    // 打字机逻辑
+    function startTypewriter(scene) {
+      clearInterval(typingTimer);
+      state.isTyping = true;
+
+      // 如果开启了 Skip 已读文本，强制打字速度为0直接展示
+      const textSpeed = state.skipMode ? 0 : 30; // 每字30毫秒
+
+      if (textSpeed === 0 || fullDialogueText === "") {
+        dom.dialogueText.textContent = fullDialogueText;
+        onTypewriterComplete(scene);
+        return;
+      }
+
+      typingTimer = setInterval(() => {
+        visibleTextLength++;
+        dom.dialogueText.textContent = fullDialogueText.substring(0, visibleTextLength);
+        
+        if (visibleTextLength >= fullDialogueText.length) {
+          onTypewriterComplete(scene);
+        }
+      }, textSpeed);
+    }
+
+    // 快捷跳过/展示全文
+    function finishTypewriterInstantly(scene) {
+      clearInterval(typingTimer);
+      dom.dialogueText.textContent = fullDialogueText;
+      onTypewriterComplete(scene);
+    }
+
+    function onTypewriterComplete(scene) {
+      clearInterval(typingTimer);
+      state.isTyping = false;
+      dom.arrowIndicator.style.display = 'block';
+
+      // 选项分支渲染
+      if (scene.choices && scene.choices.length > 0) {
+        renderChoices(scene.choices);
+        return;
+      }
+
+      // 如果开启了自动播放(AUTO)，等待设定延时后自动前进
+      if (state.autoMode && !state.skipMode) {
+        const delay = Math.max(1200, fullDialogueText.length * 70); // 智能按长度留存停顿
+        autoTimer = setTimeout(() => {
+          advanceText();
+        }, delay);
+      } else if (state.skipMode) {
+        // Skip 模式极速飞跃
+        autoTimer = setTimeout(() => {
+          advanceText();
+        }, 80);
+      }
+    }
+
+    // 渲染分支剧情选项
+    function renderChoices(choices) {
+      dom.choicesOverlay.innerHTML = "";
+      let visibleChoicesCount = 0;
+
+      choices.forEach(c => {
+        // 判定分支解锁条件 (flag_love == true 类似表达式判定)
+        const isUnlocked = evalCondition(c.condition);
+        
+        if (isUnlocked) {
+          visibleChoicesCount++;
+          const btn = document.createElement('div');
+          btn.className = "choice-button glass-panel";
+          btn.textContent = c.text;
+          
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // 阻止穿透引发对话前进
+            
+            // 播放点击音效
+            playSE('click.mp3'); 
+            
+            // 设定状态旗帜
+            if (c.set_flags) {
+              for (const [fKey, fValue] of Object.entries(c.set_flags)) {
+                state.flags[fKey] = fValue;
+              }
+            }
+            
+            // 选项隐藏
+            dom.choicesOverlay.style.display = 'none';
+            
+            // 走向分支终点场景
+            renderScene(c.next);
+          });
+          dom.choicesOverlay.appendChild(btn);
+        }
+      });
+
+      if (visibleChoicesCount > 0) {
+        // 展示分支盘
+        dom.choicesOverlay.style.display = 'flex';
+      } else {
+        // 均被旗帜锁住，跳往保底出口
+        console.warn("All choices locked. Routing automatically.");
+      }
+    }
+
+    // 用户推进对话核心机制 (Space/点击动作)
+    function advanceText() {
+      // 被选项遮挡时，屏蔽直接前进
+      if (dom.choicesOverlay.style.display === 'flex') return;
+
+      const scene = getSceneNode(state.currentSceneId);
+      if (!scene) return;
+
+      if (state.isTyping) {
+        // 正在打字时点击，瞬间补完文本
+        finishTypewriterInstantly(scene);
+      } else {
+        // 已显示完当前文字，进入下一个路由
+        if (scene.is_ending) {
+          // 结局节点，点击重返标题
+          exitToTitle();
+          return;
+        }
+
+        // 判定条件路由 next_if
+        if (scene.next_if && scene.next_if.length > 0) {
+          for (const route of scene.next_if) {
+            if (evalCondition(route.condition)) {
+              renderScene(route.next);
+              return;
+            }
+          }
+        }
+
+        // 常规顺序路由
+        if (scene.next) {
+          renderScene(scene.next);
+        } else {
+          console.warn("Narrative reached dead end node.");
+        }
+      }
+    }
+
+    // ==========================================
+    // 7. UI 控制层与控制菜单功能 (UI Functions)
+    // ==========================================
+    
+    // 开始新游戏
+    function startNewGame() {
+      playSE('start.mp3');
+      // 重置全局旗帜
+      state.flags = {
+        flag_dj: false,
+        flag_polite: false,
+        flag_exhausted: false
+      };
+      state.logHistory = [];
+      state.autoMode = false;
+      state.skipMode = false;
+      updateTopBarButtonStates();
+      
+      // 隐藏标题，加载首个场景
+      dom.titleScreen.style.opacity = 0;
+      setTimeout(() => {
+        dom.titleScreen.style.display = 'none';
+        dom.gameTopBar.style.display = 'flex';
+        dom.interactiveScreen = document.getElementById('game-interactive-layer');
+        dom.interactiveScreen.style.display = 'block';
+        renderScene('s1_init');
+      }, 600);
+    }
+
+    // 继续游戏 (读取自动存档或最新的存档)
+    function continueGame() {
+      const savedDataStr = localStorage.getItem('gal_slot_auto');
+      if (savedDataStr) {
+        playSE('click.mp3');
+        loadGameData('auto');
+        dom.titleScreen.style.display = 'none';
+        dom.gameTopBar.style.display = 'flex';
+        document.getElementById('game-interactive-layer').style.display = 'block';
+      } else {
+        alert("暂无自动存档或旧的开篇记录！");
+      }
+    }
+
+    // 退出重回菜单
+    function exitToTitle() {
+      playSE('click.mp3');
+      // 停止自动和跳过
+      state.autoMode = false;
+      state.skipMode = false;
+      updateTopBarButtonStates();
+      
+      dom.gameTopBar.style.display = 'none';
+      document.getElementById('game-interactive-layer').style.display = 'none';
+      dom.choicesOverlay.style.display = 'none';
+      
+      // 立绘全隐藏
+      dom.charLeft.classList.remove('visible');
+      dom.charCenter.classList.remove('visible');
+      dom.charRight.classList.remove('visible');
+
+      // 背景淡入纯黑
+      updateBackground('#050409');
+      playBGM('');
+
+      dom.titleScreen.style.display = 'flex';
+      dom.titleScreen.offsetHeight; // force reflow
+      dom.titleScreen.style.opacity = 1;
+    }
+
+    // 往期回滚日志历史收集
+    function addHistoryLog(speaker, text) {
+      // 限制 100 条日志
+      if (state.logHistory.length > 100) {
+        state.logHistory.shift();
+      }
+      state.logHistory.push({ speaker, text });
+    }
+
+    function showLogPanel() {
+      playSE('click.mp3');
+      dom.logContainer.innerHTML = "";
+      
+      if (state.logHistory.length === 0) {
+        dom.logContainer.innerHTML = '<div class="slot-empty">暂无对话记录</div>';
+      } else {
+        state.logHistory.forEach(h => {
+          const item = document.createElement('div');
+          item.className = "log-item";
+          
+          const spkr = document.createElement('div');
+          spkr.className = "log-speaker" + (h.speaker ? "" : " narrator");
+          spkr.textContent = h.speaker || "旁白";
+          
+          const txt = document.createElement('div');
+          txt.className = "log-dialogue";
+          txt.textContent = h.text;
+          
+          item.appendChild(spkr);
+          item.appendChild(txt);
+          dom.logContainer.appendChild(item);
+        });
+      }
+      
+      dom.logOverlay.style.display = 'flex';
+      // 自动滚至日志底端
+      dom.logContainer.scrollTop = dom.logContainer.scrollHeight;
+    }
+
+    // ==========================================
+    // 8. 存读档系统 (Save & Load Core)
+    // ==========================================
+    
+    // 打开存盘或读盘浮窗
+    function openSaveLoadPanel(mode) {
+      playSE('click.mp3');
+      dom.saveLoadTitle.textContent = mode === 'save' ? "保存游戏进度" : "读取游戏进度";
+      dom.slotsContainer.innerHTML = "";
+
+      // 提供 4 个存档卡槽
+      for (let i = 1; i <= 4; i++) {
+        const slotKey = `gal_slot_${i}`;
+        const slotDataStr = localStorage.getItem(slotKey);
+        
+        const slot = document.createElement('div');
+        slot.className = "save-slot";
+        
+        if (slotDataStr) {
+          const sData = JSON.parse(slotDataStr);
+          const scene = getSceneNode(sData.sceneId);
+          const bgmText = scene ? (scene.speaker_name ? `【${scene.speaker_name}】` : "") + scene.dialogue.substring(0, 25) + "..." : "未知节点";
+          
+          slot.innerHTML = `
+            <div class="slot-meta">
+              <span>插槽 ${i}</span>
+              <span style="color: var(--primary-neon); font-weight:bold;">已存</span>
+            </div>
+            <div class="slot-info">${bgmText}</div>
+            <div class="slot-date">${sData.date}</div>
+          `;
+          
+          slot.addEventListener('click', () => {
+            if (mode === 'save') {
+              saveGameData(i);
+            } else {
+              loadGameData(i);
+            }
+          });
+        } else {
+          slot.innerHTML = `
+            <div class="slot-meta"><span>插槽 ${i}</span></div>
+            <div class="slot-empty">无存档数据</div>
+          `;
+          slot.addEventListener('click', () => {
+            if (mode === 'save') {
+              saveGameData(i);
+            } else {
+              alert("当前无数据可供加载！");
+            }
+          });
+        }
+        dom.slotsContainer.appendChild(slot);
+      }
+      dom.saveLoadOverlay.style.display = 'flex';
+    }
+
+    function saveGameData(slotIndex) {
+      playSE('save.mp3');
+      const now = new Date();
+      const dateString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      
+      const saveData = {
+        sceneId: state.currentSceneId,
+        flags: state.flags,
+        logHistory: state.logHistory,
+        date: dateString
+      };
+
+      localStorage.setItem(`gal_slot_${slotIndex}`, JSON.stringify(saveData));
+      
+      // 同时存为自动读档存档
+      localStorage.setItem(`gal_slot_auto`, JSON.stringify(saveData));
+      
+      dom.saveLoadOverlay.style.display = 'none';
+      alert(`进度已保存至 插槽 ${slotIndex}！`);
+    }
+
+    function loadGameData(slotIndex) {
+      const slotKey = slotIndex === 'auto' ? 'gal_slot_auto' : `gal_slot_${slotIndex}`;
+      const savedDataStr = localStorage.getItem(slotKey);
+      if (!savedDataStr) return;
+
+      playSE('load.mp3');
+      const sData = JSON.parse(savedDataStr);
+      
+      state.currentSceneId = sData.sceneId;
+      state.flags = sData.flags;
+      state.logHistory = sData.logHistory || [];
+      state.autoMode = false;
+      state.skipMode = false;
+      updateTopBarButtonStates();
+
+      // 对话框及面板还原
+      dom.choicesOverlay.style.display = 'none';
+      dom.saveLoadOverlay.style.display = 'none';
+      
+      renderScene(state.currentSceneId);
+    }
+
+    // ==========================================
+    // 9. 自动播放与快速跳过逻辑 (Auto/Skip Control)
+    // ==========================================
+    function toggleAutoPlay() {
+      playSE('click.mp3');
+      state.autoMode = !state.autoMode;
+      if (state.autoMode) {
+        state.skipMode = false; // 互斥
+        // 若当前不在打字，直接触发前进
+        if (!state.isTyping) {
+          advanceText();
+        }
+      } else {
+        clearTimeout(autoTimer);
+      }
+      updateTopBarButtonStates();
+    }
+
+    function toggleSkipMode() {
+      playSE('click.mp3');
+      state.skipMode = !state.skipMode;
+      if (state.skipMode) {
+        state.autoMode = false;
+        if (!state.isTyping) {
+          advanceText();
+        } else {
+          const scene = getSceneNode(state.currentSceneId);
+          if (scene) finishTypewriterInstantly(scene);
+        }
+      } else {
+        clearTimeout(autoTimer);
+      }
+      updateTopBarButtonStates();
+    }
+
+    function updateTopBarButtonStates() {
+      if (state.autoMode) dom.btnAuto.classList.add('active');
+      else dom.btnAuto.classList.remove('active');
+
+      if (state.skipMode) dom.btnSkip.classList.add('active');
+      else dom.btnSkip.classList.remove('active');
+    }
+
+    // ==========================================
+    // 10. 设置面板与音量设定 (Settings Control)
+    // ==========================================
+    function initSettings() {
+      // 从缓存读取音量设置
+      const cacheBgm = localStorage.getItem('gal_bgm_vol');
+      const cacheSe = localStorage.getItem('gal_se_vol');
+      if (cacheBgm !== null) settings.bgmVolume = parseFloat(cacheBgm);
+      if (cacheSe !== null) settings.seVolume = parseFloat(cacheSe);
+
+      dom.sliderBgm.value = settings.bgmVolume;
+      dom.sliderSe.value = settings.seVolume;
+      
+      dom.labelBgm.textContent = `${Math.round(settings.bgmVolume * 100)}%`;
+      dom.labelSe.textContent = `${Math.round(settings.seVolume * 100)}%`;
+      
+      dom.audioBgm.volume = settings.bgmVolume;
+      dom.audioSe.volume = settings.seVolume;
+    }
+
+    function updateSettingsLabels() {
+      dom.labelBgm.textContent = `${Math.round(dom.sliderBgm.value * 100)}%`;
+      dom.labelSe.textContent = `${Math.round(dom.sliderSe.value * 100)}%`;
+    }
+
+    function saveSettings() {
+      playSE('click.mp3');
+      settings.bgmVolume = parseFloat(dom.sliderBgm.value);
+      settings.seVolume = parseFloat(dom.sliderSe.value);
+      
+      localStorage.setItem('gal_bgm_vol', settings.bgmVolume);
+      localStorage.setItem('gal_se_vol', settings.seVolume);
+      
+      dom.audioBgm.volume = settings.bgmVolume;
+      dom.audioSe.volume = settings.seVolume;
+      
+      dom.settingsOverlay.style.display = 'none';
+    }
+
+    // ==========================================
+    // 11. 交互绑定与启动监听 (Event Listeners Setup)
+    // ==========================================
+    
+    // 初始化标题漂浮粒子装饰 (CSS-driven dynamic particles)
+    function createTitleParticles() {
+      dom.titleParticles.innerHTML = "";
+      const particleCount = 20;
+      for (let i = 0; i < particleCount; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        
+        // 随机参数分配
+        const size = Math.random() * 40 + 10;
+        p.style.width = `${size}px`;
+        p.style.height = `${size}px`;
+        p.style.left = `${Math.random() * 100}%`;
+        p.style.animationDuration = `${Math.random() * 8 + 4}s`;
+        p.style.animationDelay = `${Math.random() * 5}s`;
+        
+        dom.titleParticles.appendChild(p);
+      }
+    }
+
+    function setupEventListeners() {
+      // 标题按钮组
+      dom.btnStartGame.addEventListener('click', startNewGame);
+      dom.btnContinueGame.addEventListener('click', continueGame);
+      
+      dom.btnShowSettings.addEventListener('click', () => {
+        playSE('click.mp3');
+        dom.settingsOverlay.style.display = 'flex';
+      });
+
+      // 游戏大区交互：点击/触摸对话框推进
+      dom.dialoguePanel.addEventListener('click', (e) => {
+        // 自动播放时点击则打断，常规流程直接推进
+        if (state.autoMode) {
+          state.autoMode = false;
+          updateTopBarButtonStates();
+          clearTimeout(autoTimer);
+        }
+        advanceText();
+      });
+
+      // 键盘空格/回车推进逻辑 (PC 辅助)
+      document.addEventListener('keydown', (e) => {
+        // 标题屏时不可敲击键盘推进
+        if (dom.titleScreen.style.display !== 'none') return;
+        // 蒙版浮层打开时禁止推进
+        if (dom.logOverlay.style.display === 'flex' || 
+            dom.saveLoadOverlay.style.display === 'flex' || 
+            dom.settingsOverlay.style.display === 'flex') return;
+
+        if (e.code === 'Space' || e.code === 'Enter') {
+          e.preventDefault();
+          advanceText();
+        }
+      });
+
+      // 顶部操控条
+      dom.btnAuto.addEventListener('click', toggleAutoPlay);
+      dom.btnSkip.addEventListener('click', toggleSkipMode);
+      dom.btnShowLog.addEventListener('click', showLogPanel);
+      
+      dom.btnSave.addEventListener('click', () => openSaveLoadPanel('save'));
+      dom.btnLoad.addEventListener('click', () => openSaveLoadPanel('load'));
+      dom.btnMenu.addEventListener('click', exitToTitle);
+
+      // 关闭浮层按钮
+      dom.btnCloseLog.addEventListener('click', () => {
+        playSE('click.mp3');
+        dom.logOverlay.style.display = 'none';
+      });
+
+      dom.btnCloseSaveLoad.addEventListener('click', () => {
+        playSE('click.mp3');
+        dom.saveLoadOverlay.style.display = 'none';
+      });
+
+      dom.sliderBgm.addEventListener('input', updateSettingsLabels);
+      dom.sliderSe.addEventListener('input', updateSettingsLabels);
+      dom.btnSaveSettings.addEventListener('click', saveSettings);
+      dom.btnCloseSettings.addEventListener('click', () => {
+        playSE('click.mp3');
+        dom.settingsOverlay.style.display = 'none';
+      });
+      
+      // 检测是否存在自动存档供标题页高亮按钮显示
+      const autoSave = localStorage.getItem('gal_slot_auto');
+      if (!autoSave) {
+        dom.btnContinueGame.style.opacity = 0.5;
+        dom.btnContinueGame.style.cursor = 'not-allowed';
+      }
+    }
+
+    // ==========================================
+    // 12. 引擎初始化加载入口 (App Bootloader)
+    // ==========================================
+    function bootEngine() {
+      // 1. 检验剧本文件完整度
+      if (!checkScriptIntegrity()) return;
+
+      // 2. 初始化自适应缩放
+      resizeGameCanvas();
+
+      // 3. 构建漂浮美化装饰
+      createTitleParticles();
+
+      // 4. 读取音量设置
+      initSettings();
+
+      // 5. 绑定UI响应事件
+      setupEventListeners();
+    }
+
+    // 运行引导
+    bootEngine();
+  </script>
+</body>
+</html>
